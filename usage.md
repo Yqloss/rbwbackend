@@ -30,3 +30,42 @@
 #### Require
 `ign` The player name
 `name` The name of the party
+
+#### Return
+`200` Successful. Get registry data.
+`400` Missing field
+`404` Cannot find the player
+`409` The player already has a party.
+
+## /party/join
+#### Require
+`ign` The player name
+`leader` The name of another of the party
+
+#### Return
+`200` Successful. Get registry data.
+`400` Missing field
+`404` Cannot find the player
+`406` The party is full
+`409` The player already has a party / The leader doesn't have a party.
+
+## /party/leave
+#### Require
+`ign` The player name
+
+#### Return
+`200` Successful. Get registry data.
+`400` Missing field
+`404` Cannot find the player
+`406` Cannot leave (Caused by the player is leader)
+`409` The player doesn't have a party.
+
+## /party/find
+#### Require
+`ign/name` The player name / The party name
+
+#### Return
+`200` Successful. Get registry data.
+`400` Missing field
+`404` Cannot find the player or the party
+`409` The player doesn't have a party.
