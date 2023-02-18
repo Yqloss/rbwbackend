@@ -1,0 +1,10 @@
+所有TEXT都需要加引号
+
+添加元素（run）
+insert into <table> values(<value array>)
+选择元素（each）
+select <needed column> from <table> where <condition>
+修改元素（run）
+update <table> set <column>=<value> where <condition>
+删除元素（run）
+delete from <table> where <condition>

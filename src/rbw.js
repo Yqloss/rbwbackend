@@ -1,4 +1,4 @@
-const fs = require('fs');
+const sqlite = require('sqlite3');
 
 const rbwRank = [
     { name: 'Coal', score: 0, color: '#000000', win: 35, lose: 10, mvp: 15 },
@@ -22,66 +22,90 @@ const rbwRank = [
 class RbwManager {
     constructor(dataFilePath) {
         this.dataFilePath = dataFilePath;
-        if (fs.existsSync(dataFilePath))
-            this.data = JSON.parse(fs.readFileSync(dataFilePath));
-        else
-            this.data = { player: [], party: [] };
-        this.player_cnt = this.data.player.length;
-        this.party_cnt = this.data.party.length;
+        this.database = new sqlite.Database(this.dataFilePath, (err) => console.log(err == null ? 'Sqlite startup complete.' : err));
+        this.database.each('select max(id) from player', (_, row) => this.player_cnt = row['max(id)'] ?? -1 + 1);
+        this.database.each('select max(id) from party', (_, row) => this.party_cnt = row['max(id)'] ?? -1 + 1);
+        this.database.each('select max(id) from game', (_, row) => this.game_cnt = row['max(id)'] ?? -1 + 1);
+        this.inQueue = null;
     }
-    save = () => fs.writeFileSync(this.dataFilePath, JSON.stringify(this.data));
-    has = (ign) => this.data.player.find(x => x.ign == ign) != null;
+    has = (ign) => new Promise(resolve => this.database.each(`select 1 from player where ign='${ign}' limit 1`, () => { }, (err, cnt) => resolve(cnt > 0)));
     getUuid = async (ign) => {
         return await fetch(`https://api.mojang.com/users/profiles/minecraft/${ign}`).then(res =>
             res.status == 200 ? res.json() : { id: null }
         ).then(json => json.id);
     }
+    getRankInfo = () => rbwRank;
     create = async (ign, qq, kook) => {
         let uuid = await this.getUuid(ign);
         if (uuid == null) return false;
-        let json = { id: this.player_cnt, ign: ign, qq: qq ?? null, kook: kook ?? null, score: 0, win: 0, lose: 0, mvp: 0, party: -1, uuid: uuid };
-        this.data.player.push(json);
+        this.database.run(`insert into player values(${this.player_cnt},'${ign}','${uuid}',${qq == null ? -1 : qq},${kook == null ? -1 : kook},0,0,0,0,-1)`);
         this.player_cnt++;
-        this.save();
-        return json;
+        return new Promise(resolve => this.database.each(`select * from player where ign='${ign}' limit 1`, (_, row) => resolve(row)));
     }
-    findByIgn = (ign) => this.data.player.find(x => x.ign == ign);
-    findByQq = (qq) => this.data.player.find(x => x.qq == qq);
-    findByKook = (kook) => this.data.player.find(x => x.kook == kook);
-    findById = (id) => this.data.player.find(x => x.id == id);
-    createParty = (ign, name) => {
-        let leader = this.findByIgn(ign);
-        leader.party = this.party_cnt;
-        let json = { id: this.party_cnt, name: name, leader: leader.id, member: [] };
-        this.data.party.push(json);
+    findByIgn = (ign) => new Promise(resolve => this.database.each(`select * from player where ign='${ign}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findByQq = (qq) => new Promise(resolve => this.database.each(`select * from player where qq='${qq}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findByKook = (kook) => new Promise(resolve => this.database.each(`select * from player where kook='${kook}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findById = (id) => new Promise(resolve => this.database.each(`select * from player where id='${id}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    createParty = async (ign, name) => {
+        let leader = await this.findByIgn(ign);
+        this.database.run(`insert into party values(${this.party_cnt},'${name}',${leader.id},0,-1,-1,-1)`);
+        this.database.run(`update player set party=${this.party_cnt} where ign='${ign}'`);
         this.party_cnt++;
-        this.save();
-        return json;
+        return new Promise(resolve => this.database.each(`select * from party where name='${name}' limit 1`, (_, row) => resolve(row)));
     }
-    hasParty = (ign) => this.data.player.find(x => x.ign == ign).party != -1;
-    joinParty = (ign, leader) => {
-        let join = this.findByIgn(ign);
-        let leader_p = this.findByIgn(leader).party;
-        let party = this.findPartyById(leader_p);
-        if (party.member.length == 3) return false;
-        join.party = party.id;
-        party.member.push(join.id);
-        this.save();
+    hasParty = async (ign) => (await this.findByIgn(ign)).party >= 0;
+    joinParty = async (ign, leader) => {
+        let join = await this.findByIgn(ign);
+        let leader_p = (await this.findByIgn(leader)).party;
+        let party = await this.findPartyById(leader_p);
+        if (party.member_count == 3) return false;//Full
+        this.database.run(`update player set party=${party.id} where ign='${ign}'`);
+        this.database.run(`update party set member_count=${party.member_count + 1},member_${party.member_count + 1}=${join.id} where id=${party.id}`);
+        return new Promise(resolve => this.database.each(`select * from party where id=${party.id} limit 1`, (_, row) => resolve(row)));
+    }
+    leaveParty = async (ign) => {
+        let leave = await this.findByIgn(ign);
+        let party = await this.findPartyById(leave.party);
+        if (party.leader == leave.ign) return false;//Only member can leave
+        this.database.run(`update player set party=-1 where ign=${ign}`);
+        this.database.run(`update party set member_count=${party.member_count - 1},member_${party.member_count}=-1 where id=${party.id}`);
+        return new Promise(resolve => this.database.each(`select * from party where id=${party.id} limit 1`, (_, row) => resolve(row)));
+    }
+    disbandParty = async (ign) => {
+        let disband = await this.findByIgn(ign);
+        let party = await this.findPartyById(disband.party);
+        if (party.leader != disband.id) return false;//Only leader can disband
+        this.database.run(`update player set party=-1 where ign=${ign}`);
+        if (party.member_count >= 1)
+            this.database.run(`update player set party=-1 where id=${party.member_1}`);
+        if (party.member_count >= 2)
+            this.database.run(`update player set party=-1 where id=${party.member_2}`);
+        if (party.member_count >= 3)
+            this.database.run(`update player set party=-1 where id=${party.member_3}`);
+        this.database.run(`update party set leader=-1,member_cnt=0 where id=${disband.party}`);
         return party;
     }
-    leaveParty = (ign) => {
-        let leave = this.findByIgn(ign);
-        let party = this.findPartyById(leave.party);
-        if (party.leader == leave.ign) return false;
-        leave.party = -1;
-        party.member.remove(leave.id);
-        return party;
+    partyIsFull = async (ign) => await this.findPartyById((await this.findByIgn(ign)).party).member_count == 3;
+    findPartyByName = async (name) => new Promise(resolve => this.database.each(`select * from party where name='${name}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findPartyById = async (id) => new Promise(resolve => this.database.each(`select * from party where id='${id}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    queueGame = async(ign) => {
+        if (new Date().getTime() - this.inQueue.time > 1000 * 60 * 5) this.inQueue = null;//5 minutes time out
+        let player = await this.findByIgn(ign);
+        let party = await this.findPartyById(player.party);
+        if (party.leader != player.id) return null;//Only leader can start game
+        if (this.inQueue == null) {//No other party is in queue
+            this.inQueue = { party: party.id, time: new Date().getTime() };
+            return false;
+        } else {//Someone is waiting
+            this.database.run(`insert into game values(${this.game_cnt},${party.id},${this.inQueue.party},0,0,-1)`);
+            this.game_cnt++;
+            this.inQueue = null;
+            return new Promise(resolve => this.database.each(`select * from game where id='${this.game_cnt-1}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+        }
     }
-    findPartyByName = (name) => this.data.party.find(x => x.name == name);
-    findPartyById = (id) => this.data.party.find(x => x.id == id);
 }
 
-module.exports = { RbwManager, rbwRank };
+module.exports = { RbwManager };
 
 
 // Array.equals()

@@ -11,7 +11,7 @@
 `qq/kook` The qq or kook id or both of the player
 
 #### Return
-`200` Successful. Get registry data.
+`201` Successful. Get registry data.
 `400` Missing field
 `409` The player with ign has been registered.
 
@@ -68,4 +68,27 @@
 `200` Successful. Get registry data.
 `400` Missing field
 `404` Cannot find the player or the party
+`409` The player doesn't have a party.
+
+## /party/disband
+#### Require
+`ign` The player name
+
+#### Return
+`200` Successful. Get empty registry data.
+`400` Missing field
+`404` Cannot find the player
+`406` This player is not the leader
+`409` The player doesn't have a party.
+
+## /game/queue
+#### Require
+`ign` The player name
+
+#### Return
+`200` Successful. Matched.
+`201` Successful. Queued.
+`400` Missing field
+`404` Cannot find the player
+`406` This player is not the leader. / The party is not full.
 `409` The player doesn't have a party.
