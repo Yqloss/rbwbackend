@@ -119,7 +119,9 @@ const server = http.createServer(async (request, response) => {
             else if (res == false) doResponse(response, 201, `已排队，如5分钟之内未匹配到队伍将自动取消`);
             else doResponse(response, 200, res);
         }
-    }
+    } else if(path=='/game/submit'){
+        
+    }else doResponse(response,404,'API Not Found');
 });
 
 server.on('listening', () => log(`Server running on 127.0.0.1:${port}`));

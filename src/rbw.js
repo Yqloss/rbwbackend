@@ -23,9 +23,9 @@ class RbwManager {
     constructor(dataFilePath) {
         this.dataFilePath = dataFilePath;
         this.database = new sqlite.Database(this.dataFilePath, (err) => console.log(err == null ? 'Sqlite startup complete.' : err));
-        this.database.each('select max(id) from player', (_, row) => this.player_cnt = row['max(id)'] ?? -1 + 1);
-        this.database.each('select max(id) from party', (_, row) => this.party_cnt = row['max(id)'] ?? -1 + 1);
-        this.database.each('select max(id) from game', (_, row) => this.game_cnt = row['max(id)'] ?? -1 + 1);
+        this.database.each('select max(id) from player', (_, row) => this.player_cnt = (row['max(id)'] ?? -1) + 1);
+        this.database.each('select max(id) from party', (_, row) => this.party_cnt = (row['max(id)'] ?? -1) + 1);
+        this.database.each('select max(id) from game', (_, row) => this.game_cnt = (row['max(id)'] ?? -1) + 1);
         this.inQueue = null;
     }
     has = (ign) => new Promise(resolve => this.database.each(`select 1 from player where ign='${ign}' limit 1`, () => { }, (err, cnt) => resolve(cnt > 0)));
@@ -51,7 +51,7 @@ class RbwManager {
         this.database.run(`insert into party values(${this.party_cnt},'${name}',${leader.id},0,-1,-1,-1)`);
         this.database.run(`update player set party=${this.party_cnt} where ign='${ign}'`);
         this.party_cnt++;
-        return new Promise(resolve => this.database.each(`select * from party where name='${name}' limit 1`, (_, row) => resolve(row)));
+        return new Promise(resolve => this.database.each(`select * from party where leader='${leader.id}' limit 1`, (_, row) => resolve(row)));
     }
     hasParty = async (ign) => (await this.findByIgn(ign)).party >= 0;
     joinParty = async (ign, leader) => {
@@ -66,9 +66,12 @@ class RbwManager {
     leaveParty = async (ign) => {
         let leave = await this.findByIgn(ign);
         let party = await this.findPartyById(leave.party);
-        if (party.leader == leave.ign) return false;//Only member can leave
+        if (party.leader == leave.id) return false;//Only member can leave
+        let member = [party.member_1, party.member_2, party.member_3];
+        member.remove(-1).remove(leave.id);
+        while (member.length < 3) member.push(-1)
         this.database.run(`update player set party=-1 where ign=${ign}`);
-        this.database.run(`update party set member_count=${party.member_count - 1},member_${party.member_count}=-1 where id=${party.id}`);
+        this.database.run(`update party set member_count=${party.member_count - 1},member_1=${member[0]},member_2=${member[1]},member_3=${member[2]} where id=${party.id}`);
         return new Promise(resolve => this.database.each(`select * from party where id=${party.id} limit 1`, (_, row) => resolve(row)));
     }
     disbandParty = async (ign) => {
@@ -85,11 +88,11 @@ class RbwManager {
         this.database.run(`update party set leader=-1,member_cnt=0 where id=${disband.party}`);
         return party;
     }
-    partyIsFull = async (ign) => await this.findPartyById((await this.findByIgn(ign)).party).member_count == 3;
-    findPartyByName = async (name) => new Promise(resolve => this.database.each(`select * from party where name='${name}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
-    findPartyById = async (id) => new Promise(resolve => this.database.each(`select * from party where id='${id}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
-    queueGame = async(ign) => {
-        if (new Date().getTime() - this.inQueue.time > 1000 * 60 * 5) this.inQueue = null;//5 minutes time out
+    partyIsFull = (ign) => new Promise(resolve => this.findByIgn(ign).then(player => this.findPartyById(player.party).then(party => resolve(party.member_count == 3))))
+    findPartyByName = (name) => new Promise(resolve => this.database.each(`select * from party where name='${name}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findPartyById = (id) => new Promise(resolve => this.database.each(`select * from party where id='${id}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    queueGame = async (ign) => {
+        if (this.inQueue != null && new Date().getTime() - this.inQueue.time > 1000 * 60 * 5) this.inQueue = null;//5 minutes time out
         let player = await this.findByIgn(ign);
         let party = await this.findPartyById(player.party);
         if (party.leader != player.id) return null;//Only leader can start game
@@ -97,11 +100,15 @@ class RbwManager {
             this.inQueue = { party: party.id, time: new Date().getTime() };
             return false;
         } else {//Someone is waiting
-            this.database.run(`insert into game values(${this.game_cnt},${party.id},${this.inQueue.party},0,0,-1)`);
+            this.database.run(`insert into game values(${this.game_cnt},${party.id},${this.inQueue.party},0,-1,-1,0)`);
             this.game_cnt++;
             this.inQueue = null;
-            return new Promise(resolve => this.database.each(`select * from game where id='${this.game_cnt-1}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+            return new Promise(resolve => this.database.each(`select * from game where id='${this.game_cnt - 1}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
         }
+    }
+    findGame=(id)=>new Promise(resolve => this.database.each(`select * from game where id='${id}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    submitScore=async()=>{
+
     }
 }
 
