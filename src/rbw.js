@@ -43,9 +43,9 @@ class RbwManager {
         return new Promise(resolve => this.database.each(`select * from player where ign='${ign}' limit 1`, (_, row) => resolve(row)));
     }
     findByIgn = (ign) => new Promise(resolve => this.database.each(`select * from player where ign='${ign}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
-    findByQq = (qq) => new Promise(resolve => this.database.each(`select * from player where qq='${qq}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
-    findByKook = (kook) => new Promise(resolve => this.database.each(`select * from player where kook='${kook}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
-    findById = (id) => new Promise(resolve => this.database.each(`select * from player where id='${id}' limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findByQq = (qq) => new Promise(resolve => this.database.each(`select * from player where qq=${qq} limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findByKook = (kook) => new Promise(resolve => this.database.each(`select * from player where kook=${kook} limit 1`, (_, row) => resolve(row), () => resolve(null)));
+    findById = (id) => new Promise(resolve => this.database.each(`select * from player where id=${id} limit 1`, (_, row) => resolve(row), () => resolve(null)));
     createParty = async (ign, name) => {
         let leader = await this.findByIgn(ign);
         this.database.run(`insert into party values(${this.party_cnt},'${name}',${leader.id},0,-1,-1,-1)`);
